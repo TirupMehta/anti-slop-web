@@ -1,156 +1,75 @@
 ---
 name: anti-slop-web
-description: Mandatory skill whenever writing, generating, reviewing, refactoring, or scaffolding web application code — components, pages, forms, APIs, database access, auth, or full apps — in JavaScript/TypeScript, React, Next.js, or Node. This applies even to small or "quick" requests like a landing page, a single CRUD endpoint, or a login form — those are exactly where quality gets skipped. Also use this skill whenever the user asks to review, audit, harden, or clean up existing code (especially AI-generated code), or asks what library/framework/tech to use for a web project. Always consult it before calling web code done — it enforces production-grade security, code quality, accessibility, performance, testing, and maintainability instead of prototype-quality defaults.
+description: Mandatory skill whenever writing, generating, reviewing, refactoring, or scaffolding web application code — components, pages, forms, APIs, Next.js Server Actions, database access, auth, WebSockets, AI integrations, or full apps — in JavaScript/TypeScript, React, Next.js, or Node. Enforces production-grade security (OWASP), server-side input validation, authorization boundaries, data-layer idempotency, multi-tenant isolation, serverless connection pooling, boot-time env schemas, accessibility, and agent self-verification.
 ---
 
-# Production-Grade Web Development
+# Production-Grade Web Development (anti-slop-web)
 
 ## Why this exists
 
-AI-generated web code usually runs. That's a low bar. It's usually missing the things a
-senior engineer applies automatically without being asked: real input validation, real
-authorization checks (not just "are you logged in"), sane error handling, basic
-accessibility, and dependency choices that are still maintained next year. This skill's
-job is to make that judgment mandatory — not to teach new syntax, but to force the same
-checklist a good senior engineer runs in their head, every time, even on "quick" requests.
+AI-generated web code usually runs. That is a low bar. It consistently omits the unspoken judgments senior engineers make automatically: real input schema validation, resource-level authorization (not just authentication), sane error masking, boot-time env schemas, idempotency for state mutations, and serverless connection management.
 
-Write every line as if a skeptical senior engineer is about to review it line by line and
-has no reason to be generous. Not because they're hostile — because that's the actual bar
-production code needs to clear, and it's a more useful target than "would this pass a
-casual glance."
+This skill forces the exact same production checklist a skeptical staff engineer runs during code review. Write every line as if it is about to be audited line-by-line by a security lead.
+
+---
 
 ## The Non-Negotiables
 
-These apply to *every* piece of code this skill touches, regardless of project size,
-regardless of whether the user asked for them. A prototype can skip a test suite. Nothing
-skips this list.
+These apply to *every* piece of code this skill touches, regardless of project size:
 
-1. No hardcoded secrets, API keys, or credentials — ever, even in examples. Use env vars.
-2. No string-concatenated queries. Parameterize everything that touches a database.
-3. Passwords are hashed with argon2id or bcrypt (cost ≥ 12). Never plaintext, never MD5/SHA1,
-   never reversible encryption for a password.
-4. Every external input is validated **server-side** against a schema. Client-side
-   validation is UX, never the security boundary.
-5. Errors shown to users never leak stack traces, internal paths, or raw DB errors.
-6. Every mutating endpoint checks not just "is someone logged in" but "is *this* user
-   allowed to act on *this* resource." (The classic slop bug: any logged-in user can edit
-   any other user's data by changing an ID in the request.)
-7. Every dependency added is current and actually maintained — check before adding one,
-   not after. Flag anything abandoned, deprecated, or in maintenance-only mode.
-8. TypeScript strict mode is on. `any` requires a comment explaining why, not silence.
-9. Every `await` that can fail is handled — no silently swallowed promises.
-10. Any UI that fetches data has a loading state, an empty state, and an error state — not
-    just the happy path.
-11. Security headers and CORS are explicitly set and reviewed — never left at whatever the
-    framework defaults to without checking what that actually is.
-12. Nothing ships without at least one test covering its critical path.
-13. Confidence in your response matches what was actually verified. Never tell the user
-    something is "production-ready," "fully secure," or "tested" unless every part of that
-    claim is true. State what wasn't done as plainly as what was — an honest gap list is
-    worth more than an unearned checkmark.
-14. Anything that must not happen twice — a payment, an order, an email send, provisioning
-    a resource — is protected against duplicate execution at the data layer (a unique
-    constraint, an idempotency key, an atomic conditional update), not just a disabled
-    submit button. See `references/data-integrity.md`.
+1. **Zero hardcoded secrets**: All credentials, keys, and tokens live in environment variables or secret managers.
+2. **Parameterized database access**: Zero string-concatenated SQL queries or raw dynamic commands.
+3. **Strong password hashing**: `argon2id` or `bcrypt` (cost ≥ 12).
+4. **Server-side validation**: External inputs must be parsed against a Zod schema server-side. Client validation is UX only.
+5. **Masked stack traces**: Internal paths and raw database errors must never reach client responses.
+6. **Explicit authorization boundaries**: Every mutating route/endpoint/action MUST verify resource ownership (`userId` / `workspaceId`), not just login status.
+7. **Server Action security**: Next.js Server Actions (`"use server"`) are public HTTP POST endpoints — parse inputs and check authorization inside every single action body.
+8. **RSC payload protection**: Never pass raw database objects to Client Components (`"use client"`). Project explicit DTOs.
+9. **Boot-time environment validation**: Fail fast on app startup if required environment variables are missing using boot schemas (`@t3-oss/env-nextjs` / `@t3-oss/env-core`).
+10. **Multi-tenant query scoping**: Dual-scope every query with `workspaceId` / `tenantId` at the data layer, including nested relations.
+11. **Serverless connection pooling**: Use connection poolers or global singletons for serverless DB drivers to prevent connection exhaustion.
+12. **AI API key & cost protection**: Never expose AI API keys on the client (`NEXT_PUBLIC_*`). Enforce per-user rate limits and `max_tokens` generation caps on all LLM calls.
+13. **Maintained dependencies**: Flag deprecated, unmaintained, or vulnerable dependencies before adding them.
+14. **Strict TypeScript**: TypeScript strict mode is on. No unannotated `any` types.
+15. **Handled async promises**: Zero unhandled or swallowed promises in catch blocks.
+16. **Complete UI states**: Data-fetching UIs must handle loading, empty, error, and optimistic rollback states.
+17. **Data integrity & idempotency**: State-mutating operations (payments, orders, cancellations) protected at the data layer against duplicate execution.
+18. **Honest confidence & self-verification**: Run type checks (`tsc --noEmit`) and linter before declaring tasks complete. Report unverified gaps explicitly.
 
-## Where this quietly falls apart
+---
 
-A checklist only works if it can't be rationalized around. In practice, code quality
-degrades back toward slop through a handful of specific loopholes, even while technically
-"following" everything above:
+## Agent Self-Verification Protocol
 
-- **Unearned scope-shrinking** — deciding something is "just a prototype" to justify
-  skipping the Non-Negotiables, when the user never actually said that.
-- **Checklist theater** — a catch block that only logs and swallows the error, a validator
-  that checks `typeof x === 'string'` and calls it done, a rate limiter set so loose it
-  never actually triggers on the endpoint that needed it most. The checkbox gets ticked
-  without the substance behind it.
-- **TODO-stubbing** — `// add validation later` presented as if the task were finished.
-- **Unearned confidence** — telling the user something is secure/tested/production-ready
-  without having actually verified it (see Non-Negotiable 13).
-- **Incremental drift across turns** — a feature built up over several small messages
-  never gets audited as a whole, even though each individual message looked too small to
-  bother with a full check.
-- **Grading your own homework leniently** — reviewing code from earlier in the same
-  conversation with a softer eye than a stranger's code would get.
+Before declaring any coding task complete or presenting code as "production-ready":
 
-Full catalog with concrete tells and fixes: `references/loopholes.md`. Worth rereading
-deep into a long session, or before reviewing your own earlier output — that's exactly
-when these creep back in.
+1. **Self-Audit**: Verify every line against the 18 Non-Negotiables above.
+2. **Execute Type Check**: If shell commands are available in your agent environment, run `npx tsc --noEmit` or the workspace typecheck script to verify zero TypeScript errors.
+3. **Execute Lint / Build**: Run `npm run lint` or `npm run build` if modifying core configuration or routing.
+4. **Report Unverified Items**: State explicitly any item that could not be verified in the local environment (e.g., pending database migrations, external OAuth secret setup).
 
-## How to use this skill
+---
 
-**Step 1 — route to the right reference file(s) based on the task:**
+## Task Routing & Reference Manuals
 
-| Task | Read |
-|---|---|
-| New component / page / UI | `references/code-quality.md`, `references/accessibility-design.md` |
-| New API endpoint or backend logic | `references/security.md`, `references/code-quality.md`, `references/testing.md` |
-| Full app / project scaffold | `references/stack-defaults.md`, `references/architecture-future-proofing.md`, `references/security.md`, `references/observability-ops.md` |
-| Database work | `references/security.md` (injection/access), `references/performance.md` (indexing/N+1) |
-| Anything that changes state and can't safely run twice (orders, payments, sending email, provisioning) | `references/data-integrity.md`, in addition to whatever else applies |
-| "What should I use for X?" / picking a library | `references/stack-defaults.md` |
-| Reviewing, auditing, or hardening existing code | `references/review-mode.md` first, then whatever else applies |
-| Anything that doesn't clearly match a row above (a scraper, a webhook receiver, a cron job) | Default to `references/security.md` + `references/code-quality.md` — don't treat "not in the table" as "nothing applies." |
+Route to the relevant reference document based on the task:
 
-**Step 2 — scale the bar to the project's actual stakes, never below the Non-Negotiables.**
-Default assumption is that code might end up handling real users and real data. Only relax
-rigor below the Non-Negotiables floor when the *user* has explicitly said this is a
-prototype/demo/throwaway — never assume that on the code's behalf to save effort. Even
-then, state out loud what's being relaxed and why ("skipping tests here since you said this
-is a throwaway demo") rather than silently cutting corners, and the Non-Negotiables
-themselves (secrets, injection, password hashing, authorization, leaked errors) still never
-move, prototype or not.
+| Task Type | Reference Manual | Primary Focus |
+|---|---|---|
+| New Component / UI Page | `references/code-quality.md`, `references/accessibility-design.md` | WCAG AA compliance, state management, micro-interactions |
+| Next.js Server Actions & RSC | `references/nextjs-server-actions.md` | Public POST security, RSC payload DTOs, server-only isolation |
+| API Endpoint / Backend Logic | `references/security.md`, `references/code-quality.md`, `references/testing.md` | OWASP Top 10, authorization boundaries, edge testing |
+| AI / LLM Integrations | `references/ai-llm-integrations.md` | Key protection, rate limiting, token caps, streaming errors |
+| WebSockets / Real-Time | `references/realtime-websockets.md` | Handshake auth, room boundaries, unmount cleanup |
+| Environment Setup | `references/environment-boot-validation.md` | Boot-time schema validation, client/server secret separation |
+| Multi-Tenant & Serverless DB | `references/multi-tenant-data-isolation.md` | Workspace scoping, soft-deletes, connection pooling |
+| State Mutations & Money | `references/data-integrity.md` | Idempotency keys, atomic updates, transaction safety |
+| Code Audit / Review Mode | `references/review-mode.md`, `references/loopholes.md` | Catching subtle slop, rationalizations, and TODO stubs |
+| Project Scaffolding | `references/stack-defaults.md`, `references/architecture-future-proofing.md` | Modern tech stack, clean abstractions, deployment ops |
 
-**Step 3 — before handing code back, go through the Non-Negotiables one line at a time
-against the actual code, not from memory of having followed them while writing.** This is a
-distinct pass, not a mental "I was careful" impression — that's exactly the gap the
-loopholes above live in. If something was skipped, say so explicitly and why, instead of
-presenting incomplete work as finished.
+---
 
-## Review mode
+## Worked Examples
 
-If the user asks you to review, audit, clean up, or "make production-ready" existing code
-— including code generated earlier in the same conversation — don't just silently rewrite
-it. Go to `references/review-mode.md` for the process and output format. The point is that
-the person understands what was wrong, not just that the code changed.
-
-## Worked examples
-
-`examples/` has a few small, fully-annotated, gold-standard samples in this stack: a
-complete API endpoint (`examples/secure-api-endpoint.md`), an accessible form component
-(`examples/accessible-form-component.md`), and a before/after showing review mode's
-expected tone and output shape (`examples/review-mode-before-after.md`). Reading one before
-generating something structurally similar for the first time in a session is a faster way
-to calibrate than re-reading every reference file's prose.
-
-## Reference files
-
-- `references/stack-defaults.md` — opinionated JS/TS/React/Next.js/Node tech choices, with
-  reasoning, for when the user hasn't specified a stack.
-- `references/security.md` — the OWASP-style baseline: auth, input handling, secrets,
-  headers, rate limiting, dependency hygiene.
-- `references/code-quality.md` — TypeScript config, structure, naming, error handling,
-  avoiding both under- and over-engineering.
-- `references/testing.md` — what to test, what not to bother testing, tools, CI gating.
-- `references/performance.md` — DB indexing/N+1, frontend bundle/caching, when to actually
-  optimize.
-- `references/data-integrity.md` — race conditions, idempotency, transactions, and
-  concurrent-edit handling for anything that mutates state.
-- `references/accessibility-design.md` — WCAG-AA baseline plus the design details
-  AI-generated UIs usually skip (empty states, confirmation on destructive actions, etc).
-- `references/architecture-future-proofing.md` — project structure, config management,
-  dependency pinning, avoiding lock-in without over-engineering against it.
-- `references/observability-ops.md` — logging, error tracking, environments, deployment
-  hygiene.
-- `references/review-mode.md` — how to audit and prioritize findings in existing code.
-- `references/loopholes.md` — the specific ways this checklist gets satisfied on paper but
-  not in substance, with concrete tells and fixes for each.
-
-## Scope note
-
-This skill is currently tuned for the JS/TS ecosystem (React, Next.js, Node) since that's
-the primary stack it's built for. `security.md`, `testing.md`, `accessibility-design.md`,
-`performance.md`, and `review-mode.md` are largely stack-agnostic principles and apply
-regardless of language — only `stack-defaults.md` and parts of `architecture-future-proofing.md`
-are JS/TS-specific.
+* `examples/secure-api-endpoint.md` — Secure backend endpoint with authorization and Zod validation.
+* `examples/accessible-form-component.md` — Accessible React form with loading/error state management.
+* `examples/review-mode-before-after.md` — Concrete review mode audit output.

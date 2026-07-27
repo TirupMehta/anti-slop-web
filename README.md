@@ -1,6 +1,6 @@
 # anti-slop-web
 
-An AI Agent Skill that enforces production-grade security, data integrity, and software engineering standards when generating or reviewing web applications.
+An AI Agent Skill that enforces production-grade security, data integrity, modern architecture, and software engineering standards when generating or reviewing web applications.
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](CONTRIBUTING.md)
@@ -12,9 +12,11 @@ An AI Agent Skill that enforces production-grade security, data integrity, and s
 AI code generators produce code that runs, but frequently omit critical production controls that senior engineers apply by default:
 
 * **Resource-level authorization checks**: Verifying authentication while omitting user ownership validation (IDOR/BOLA).
+* **Next.js Server Action traps**: Treating public `"use server"` endpoints like private local functions without input parsing or session ownership checks.
+* **RSC payload over-fetching**: Passing raw ORM database objects to `"use client"` components, exposing sensitive internal database fields.
+* **Unbounded AI/LLM API features**: Missing rate limits, missing token caps, and exposing private API keys in client-side bundles.
 * **Superficial validation**: Catch blocks that swallow errors, unchecked type assertions, and missing server-side schema parsing.
-* **Database and state vulnerabilities**: String-built queries, missing transaction boundaries, and unhandled race conditions on state mutations (e.g., duplicate payments or cancellations).
-* **Leaky error handling**: Returning internal database traces to the client UI.
+* **Database and state vulnerabilities**: Serverless connection exhaustion, missing multi-tenant query filters, and unhandled race conditions on state mutations.
 
 `anti-slop-web` is a structured instruction set compatible with Claude Code, Cursor, Windsurf, and Gemini/Antigravity agents. It forces agents to audit every generated endpoint, component, and query against senior engineering standards before marking tasks complete.
 
@@ -47,40 +49,44 @@ Reference `SKILL.md` directly in your workspace instructions (`.windsurfrules` o
 
 ## Code Generation Baseline: Before and After
 
-### Default AI Output
+### Default AI Output (Server Action Slop)
 ```typescript
-// Unsecure: Missing authorization check, missing input validation, unhandled errors
-app.post("/api/orders/:id/cancel", async (req, res) => {
-  const order = await db.query(`SELECT * FROM orders WHERE id = '${req.params.id}'`);
-  await db.query(`UPDATE orders SET status = 'cancelled' WHERE id = '${req.params.id}'`);
-  res.json({ success: true });
-});
+// Unsecure: Missing authorization, missing input validation, leaks DB errors
+"use server";
+
+export async function deleteDocument(documentId: string) {
+  // Exploit: Any user can delete any document by invoking deleteDocument("doc_123")
+  await db.delete(documents).where(eq(documents.id, documentId));
+}
 ```
 
 ### Enforced by `anti-slop-web`
 ```typescript
-// Enforced: Schema validation, resource ownership, atomic update, error masking
-app.post("/api/orders/:id/cancel", async (req, res) => {
-  try {
-    const { id: orderId } = cancelOrderSchema.parse(req.params);
-    const userId = req.user?.id;
-    if (!userId) return res.status(401).json({ error: "Unauthorized" });
+// Enforced: Input schema validation, session verification, dual-scoped query ownership
+"use server";
 
-    const updatedCount = await db.orders.updateMany({
-      where: { id: orderId, userId, status: { not: "cancelled" } },
-      data: { status: "cancelled", cancelledAt: new Date() },
-    });
+import { z } from "zod";
+import { auth } from "@/lib/auth";
 
-    if (updatedCount === 0) {
-      return res.status(404).json({ error: "Order not found or already processed" });
-    }
+const deleteSchema = z.object({ documentId: z.string().min(1) });
 
-    return res.status(200).json({ success: true });
-  } catch (error) {
-    logger.error("Order cancellation failed", { error, orderId: req.params.id });
-    return res.status(500).json({ error: "Internal server error" });
+export async function deleteDocument(rawInput: unknown) {
+  const session = await auth();
+  if (!session?.user?.id) throw new Error("Unauthorized");
+
+  const { documentId } = deleteSchema.parse(rawInput);
+
+  const deleted = await db
+    .delete(documents)
+    .where(and(eq(documents.id, documentId), eq(documents.userId, session.user.id)))
+    .returning();
+
+  if (deleted.length === 0) {
+    throw new Error("Document not found or permission denied");
   }
-});
+
+  return { success: true };
+}
 ```
 
 ---
@@ -89,20 +95,24 @@ app.post("/api/orders/:id/cancel", async (req, res) => {
 
 Every piece of code touched by this skill must satisfy these baseline requirements:
 
-1. **Zero hardcoded secrets**: All credentials, keys, and tokens must use environment variables.
-2. **Parameterized database access**: No string-concatenated SQL queries under any circumstance.
+1. **Zero hardcoded secrets**: Credentials, keys, and tokens must use environment variables.
+2. **Parameterized database access**: Zero string-concatenated SQL queries under any circumstance.
 3. **Password hashing**: Use `argon2id` or `bcrypt` (cost ≥ 12).
-4. **Server-side validation**: All external inputs must be validated against a schema (e.g., Zod) on the server.
+4. **Server-side validation**: All external inputs must be parsed against a Zod schema server-side.
 5. **Masked stack traces**: Internal paths and raw database errors must never reach client responses.
-6. **Explicit authorization boundaries**: Every mutating route must check resource ownership, not just authentication status.
-7. **Maintained dependencies**: Do not introduce deprecated or abandoned packages.
-8. **Strict TypeScript**: No unannotated `any` types.
-9. **Handled async promises**: No silent promise swallows in catch blocks.
-10. **Complete UI states**: Data-fetching components must explicitly handle loading, empty, and error states.
-11. **Explicit security headers & CORS**: Security headers and CORS origins must be configured deliberately.
-12. **Critical path testing**: Core business logic must include verification tests.
-13. **Honest gap reporting**: Agents must state unverified gaps explicitly rather than asserting unearned production readiness.
-14. **Data integrity**: State mutations (payments, orders) must be protected against duplicate execution at the data layer.
+6. **Explicit authorization boundaries**: Every mutating route/endpoint/action MUST check resource ownership (`userId`/`workspaceId`), not just authentication status.
+7. **Server Action security**: Next.js Server Actions (`"use server"`) are public HTTP POST endpoints — parse inputs and check authorization inside every action body.
+8. **RSC payload protection**: Never pass raw database objects to Client Components (`"use client"`). Project explicit DTOs.
+9. **Boot-time environment validation**: Fail fast on app startup if required secrets are missing using schemas (`@t3-oss/env-nextjs`/`@t3-oss/env-core`).
+10. **Multi-tenant query scoping**: Dual-scope every query with `workspaceId`/`tenantId` at the data layer.
+11. **Serverless connection pooling**: Use connection poolers or global singletons for serverless DB drivers to prevent connection exhaustion.
+12. **AI API key & cost protection**: Never expose AI keys on client bundles (`NEXT_PUBLIC_*`). Enforce rate limits and `max_tokens` caps.
+13. **Maintained dependencies**: Do not introduce deprecated, unmaintained, or vulnerable packages.
+14. **Strict TypeScript**: No unannotated `any` types.
+15. **Handled async promises**: No silent promise swallows in catch blocks.
+16. **Complete UI states**: Data-fetching components must handle loading, empty, error, and optimistic rollback states.
+17. **Data integrity**: State mutations (payments, orders) must be protected against duplicate execution at the data layer.
+18. **Honest confidence & self-verification**: Run type checks (`tsc --noEmit`) and linter before declaring tasks complete.
 
 ---
 
@@ -113,8 +123,13 @@ The primary [`SKILL.md`](SKILL.md) routes tasks to targeted reference documents:
 | Task Type | Reference Document | Primary Focus |
 |---|---|---|
 | Frontend UI / Components | [`accessibility-design.md`](references/accessibility-design.md), [`code-quality.md`](references/code-quality.md) | WCAG AA accessibility, state management, micro-interactions |
+| Next.js Server Actions & RSC | [`nextjs-server-actions.md`](references/nextjs-server-actions.md) | Public POST security, RSC payload DTOs, server-only isolation |
 | Backend & APIs | [`security.md`](references/security.md), [`testing.md`](references/testing.md) | OWASP security, authorization boundaries, edge testing |
-| Database & State | [`data-integrity.md`](references/data-integrity.md), [`performance.md`](references/performance.md) | Idempotency, atomic operations, query optimization |
+| AI / LLM Integrations | [`ai-llm-integrations.md`](references/ai-llm-integrations.md) | Secret key isolation, rate limiting, token caps, streaming errors |
+| WebSockets & Real-Time | [`realtime-websockets.md`](references/realtime-websockets.md) | Handshake auth, room boundaries, unmount subscription cleanup |
+| Environment Setup | [`environment-boot-validation.md`](references/environment-boot-validation.md) | Boot-time schema validation, client/server secret separation |
+| Multi-Tenant & Serverless DB | [`multi-tenant-data-isolation.md`](references/multi-tenant-data-isolation.md) | Workspace scoping, soft-deletes, serverless connection pooling |
+| Database & State Mutations | [`data-integrity.md`](references/data-integrity.md), [`performance.md`](references/performance.md) | Idempotency, atomic operations, query optimization |
 | Audits & Code Reviews | [`review-mode.md`](references/review-mode.md), [`loopholes.md`](references/loopholes.md) | Detection of checklist rationalizations and TODO stubs |
 | Project Scaffolding | [`stack-defaults.md`](references/stack-defaults.md), [`architecture-future-proofing.md`](references/architecture-future-proofing.md) | Ecosystem defaults, clean abstractions, operations |
 
