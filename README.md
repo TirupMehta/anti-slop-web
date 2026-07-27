@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="assets/logo.png" alt="anti-slop-web logo" width="180" />
+</p>
+
 # anti-slop-web
 
 An AI Agent Skill that enforces production-grade security, data integrity, modern architecture, and software engineering standards when generating or reviewing web applications.
