@@ -1,0 +1,11 @@
+{
+  "name": "anti-slop-web",
+  "version": "1.1.0",
+  "description": "Enforces production-grade security, data integrity, and engineering standards when generating or reviewing web applications.",
+  "author": "TirupMehta",
+  "homepage": "https://github.com/TirupMehta/anti-slop-web",
+  "repository": "https://github.com/TirupMehta/anti-slop-web.git",
+  "license": "MIT",
+  "skills": ["skills/anti-slop-web/SKILL.md"],
+  "rules": ["rules/anti-slop-web.mdc"]
+}
