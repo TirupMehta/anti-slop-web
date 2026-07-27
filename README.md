@@ -28,6 +28,14 @@ AI code generators produce code that runs, but frequently omit critical producti
 
 ## Installation
 
+### 1. Cursor (1-Click or MDC Rule)
+* **Official Registry**: Install directly from [**Cursor Directory: anti-slop-web**](https://cursor.directory/plugins/anti-slop-web).
+* **Manual setup**: Copy `SKILL.md` or `rules/anti-slop-web.mdc` to your workspace `.cursor/rules/`:
+  ```bash
+  mkdir -p .cursor/rules
+  cp rules/anti-slop-web.mdc .cursor/rules/anti-slop-web.mdc
+  ```
+
 ### Claude Code CLI & Agent Frameworks
 Clone into your project's `.agents/skills` directory:
 
@@ -37,14 +45,6 @@ git clone https://github.com/TirupMehta/anti-slop-web.git .agents/skills/anti-sl
 ```
 
 Or copy globally to `~/.gemini/config/skills/anti-slop-web/`.
-
-### Cursor
-Copy `SKILL.md` to your workspace `.cursor/rules/`:
-
-```bash
-mkdir -p .cursor/rules
-cp SKILL.md .cursor/rules/anti-slop-web.mdc
-```
 
 ### Windsurf & Other Agents
 Reference `SKILL.md` directly in your workspace instructions (`.windsurfrules` or `AGENTS.md`).
